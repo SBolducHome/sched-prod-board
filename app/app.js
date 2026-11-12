@@ -25,16 +25,33 @@ function setText(node, text) {
   if (node.textContent !== value) node.textContent = value;
 }
 
-function setTime(node, iso) {
-  setText(node, iso);
-  node.setAttribute('datetime', String(iso ?? ''));
+// The viewer's own locale (day/month order) and, with no timeZone given, the viewer's own time zone.
+const dateTime = new Intl.DateTimeFormat(navigator.languages, {
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+});
+const timeOnly = new Intl.DateTimeFormat(navigator.languages, { hour: '2-digit', minute: '2-digit' });
+
+/** Local time as text; the full UTC value in `datetime`. */
+function setTime(node, iso, format = dateTime) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) {
+    setText(node, iso);
+    node.setAttribute('datetime', String(iso ?? ''));
+    return;
+  }
+  setText(node, format.format(date));
+  node.setAttribute('datetime', date.toISOString());
 }
 
 function showAcked(cell, ackedAt) {
   const mark = el('span', 'acked', 'acked ');
   mark.dataset.testid = 'acked';
   const time = el('time');
-  setTime(time, ackedAt);
+  setTime(time, ackedAt, timeOnly);
   mark.append(time);
   cell.replaceChildren(mark);
 }
