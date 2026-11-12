@@ -10,7 +10,7 @@ let empty = null;
 // Row elements by incident id. Rows are kept across updates so a row's Ack button, focus and acked mark
 // survive; only new rows are inserted and gone rows removed.
 const rows = new Map();
-// Acks done on this page: incident id -> ackedAt.
+// Acks done on this page for rows still shown: incident id -> ackedAt. Dropped with the row.
 const acked = new Map();
 // Ids whose Ack is in flight. Their rows stay on screen until the Ack settles, even if the list dropped them.
 const pending = new Set();
@@ -138,6 +138,7 @@ function render(incidents) {
     if (!ids.has(id) && !pending.has(id)) {
       row.remove();
       rows.delete(id);
+      acked.delete(id);
     }
   }
   const placed = new Set();

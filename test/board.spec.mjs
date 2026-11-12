@@ -254,3 +254,23 @@ test('9. a row whose Ack is in flight stays until the Ack settles, then goes on 
   assert.deepEqual(await rowIds(page), mockIds());
   assert.deepEqual(problems.errors, []);
 });
+
+test('10. an acked row that left the list is forgotten (acked memory stays bounded)', async () => {
+  const { page, problems } = await open();
+  await page.locator(ROW).first().waitFor();
+  mock.state.cap = mock.state.incidents.length;
+  const oldest = mock.state.incidents.at(-1);
+  await page.locator(row(oldest.id)).getByTestId('ack').click();
+  await page.locator(row(oldest.id)).getByTestId('acked').waitFor();
+
+  mock.addIncident();
+  await page.locator(row(oldest.id)).waitFor({ state: 'detached', timeout: 3500 });
+
+  // The page keeps no ack memory for rows it no longer shows: if the same id comes back, it is a fresh row.
+  mock.state.cap += 1;
+  mock.setIncidents([...mock.state.incidents, oldest]);
+  await page.locator(row(oldest.id)).waitFor({ timeout: 3500 });
+  assert.equal(await page.locator(row(oldest.id)).getByTestId('acked').count(), 0, 'ack entry was dropped with its row');
+  assert.equal(await page.locator(row(oldest.id)).getByTestId('ack').count(), 1);
+  assert.deepEqual(problems.errors, []);
+});
