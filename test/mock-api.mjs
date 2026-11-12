@@ -20,14 +20,17 @@ export const FIXED = {
   html: { id: 'INC-0666', service: 'notify', region: 'eu-west', summary: '<img src=x onerror=alert(1)>', severity: 'sev2', openedAt: '2026-11-12T01:00:00.000Z' },
 };
 
-export async function startMock({ dist, session = 'lab-session', port = 0, host = '127.0.0.1' } = {}) {
+export async function startMock({ dist, session = 'lab-session', port = 0, host = '127.0.0.1', cap = 40 } = {}) {
   let serial = 1000;
   const fixedIds = new Set(Object.values(FIXED).map((i) => i.id));
   const state = {};
+  // Every id ever listed: the API acks an incident even after its capped list dropped it.
+  const known = new Set(fixedIds);
   let timer = null;
 
   function makeIncident(extra = {}) {
     serial += 1;
+    known.add(`INC-${serial}`);
     return {
       id: `INC-${serial}`,
       service: SERVICES[serial % SERVICES.length],
@@ -55,6 +58,8 @@ export async function startMock({ dist, session = 'lab-session', port = 0, host 
       delayIncidents: [],
       delayAckMs: 0,
       drift: true,
+      // Like the real API: at most `cap` incidents, the oldest dropped when a new one arrives.
+      cap,
     });
   }
   reset();
@@ -103,7 +108,8 @@ export async function startMock({ dist, session = 'lab-session', port = 0, host 
       record.failed = true;
       return json(res, 503, { message: 'mock: failing on purpose', error: 'Service Unavailable', statusCode: 503 });
     }
-    if (!state.incidents.some((i) => i.id === id)) return json(res, 404, { message: 'no such incident', error: 'Not Found', statusCode: 404 });
+    if (!known.has(id)) return json(res, 404, { message: 'no such incident', error: 'Not Found', statusCode: 404 });
+    record.status = 200;
     json(res, 200, { id, ackedAt: record.at, receipt: `lab-receipt-${state.acks.length}` });
   }
 
@@ -139,10 +145,12 @@ export async function startMock({ dist, session = 'lab-session', port = 0, host 
     addIncident(extra) {
       const incident = makeIncident(extra);
       state.incidents.unshift(incident);
+      state.incidents.splice(state.cap);
       return incident;
     },
     setIncidents(list) {
-      state.incidents = list.map((i) => ({ ...i }));
+      for (const i of list) known.add(i.id);
+      state.incidents = list.map((i) => ({ ...i })).slice(0, state.cap);
     },
     autoAdd(ms) {
       clearInterval(timer);

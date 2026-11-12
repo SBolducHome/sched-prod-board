@@ -12,6 +12,8 @@ let empty = null;
 const rows = new Map();
 // Acks done on this page: incident id -> ackedAt.
 const acked = new Map();
+// Ids whose Ack is in flight. Their rows stay on screen until the Ack settles, even if the list dropped them.
+const pending = new Set();
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -91,6 +93,7 @@ function ackButton(id, cell) {
   button.addEventListener('click', async () => {
     button.disabled = true;
     cell.querySelector('.error')?.remove();
+    pending.add(id);
     try {
       const reply = await ack(id);
       acked.set(id, reply.ackedAt);
@@ -99,6 +102,8 @@ function ackButton(id, cell) {
       console.warn('ack failed', id, err);
       button.disabled = false;
       cell.append(el('span', 'error', 'Ack failed, retry'));
+    } finally {
+      pending.delete(id);
     }
   });
   return button;
@@ -130,7 +135,7 @@ function createRow(incident) {
 function render(incidents) {
   const ids = new Set(incidents.map((i) => String(i.id)));
   for (const [id, row] of rows) {
-    if (!ids.has(id)) {
+    if (!ids.has(id) && !pending.has(id)) {
       row.remove();
       rows.delete(id);
     }
@@ -144,6 +149,8 @@ function render(incidents) {
     let row = rows.get(id);
     if (row) updateRow(row, incident);
     else rows.set(id, (row = createRow(incident)));
+    // rows kept only for a pending Ack stay where they are
+    while (next && !ids.has(next.dataset.id)) next = next.nextElementSibling;
     if (row === next) next = next.nextElementSibling;
     else list.insertBefore(row, next);
   }

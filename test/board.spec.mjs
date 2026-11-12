@@ -231,3 +231,26 @@ test('8. R4: a request starts every 2 s, also while requests are slow', async ()
   assert.equal(mock.state.maxInFlight, 1, 'one fetch at a time');
   assert.deepEqual(problems.errors, []);
 });
+
+test('9. a row whose Ack is in flight stays until the Ack settles, then goes on a later refresh', async () => {
+  const { page, problems } = await open();
+  await page.locator(ROW).first().waitFor();
+  mock.state.cap = mock.state.incidents.length;
+  const oldest = (await rowIds(page)).at(-1);
+  mock.state.delayAckMs = 4000;
+  await page.locator(row(oldest)).getByTestId('ack').click();
+  mock.addIncident();
+  assert.equal(mockIds().includes(oldest), false, 'the capped list dropped the oldest row');
+  await waitFetches(page, 1);
+  await page.waitForTimeout(300);
+  assert.equal(mock.state.acks.at(-1).status, undefined, 'ack still in flight');
+  assert.deepEqual(await rowIds(page), [...mockIds(), oldest], 'pending row kept at its place');
+  assert.equal(await page.locator(row(oldest)).getByTestId('ack').isDisabled(), true);
+
+  await page.locator(row(oldest)).getByTestId('acked').waitFor({ timeout: 5000 });
+  assert.equal(mock.state.acks.at(-1).id, oldest);
+  assert.equal(mock.state.acks.at(-1).status, 200);
+  await page.locator(row(oldest)).waitFor({ state: 'detached', timeout: 3500 });
+  assert.deepEqual(await rowIds(page), mockIds());
+  assert.deepEqual(problems.errors, []);
+});
