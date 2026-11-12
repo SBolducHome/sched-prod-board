@@ -5,9 +5,12 @@ course's incident API. Read `plan.md` first, then the four ready issues in `issu
 
 ## Run it
 
-1. Fill `app/config.js` with `api` and `session` from start-challenge.
-2. Serve `app/` with any static server: `npm run serve`.
-3. Deploy `app/` to your own public **https** address — any static host works (GitHub Pages, Cloudflare
+1. Commit your changes (the build refuses uncommitted code, so the sha it stamps names what ships).
+2. Build: `BOARD_API=<api> BOARD_SESSION=<session> npm run build`. It copies `app/` to `dist/`, writes
+   `dist/config.js` from those two variables (`app/config.js` stays a placeholder in git), and puts
+   `git rev-parse HEAD` in `<meta name="build">` and the footer (`build-sha`).
+3. Serve `dist/` with any static server: `npm run serve`.
+4. Deploy `dist/` to your own public **https** address — any static host works (GitHub Pages, Cloudflare
    Pages or Workers, Netlify, Vercel's production URL, …).
 
 ## The incident API
