@@ -155,6 +155,10 @@ test('4. times in the viewer\'s own locale and zone; full UTC in <time datetime>
     { locale: 'de-DE', timezoneId: 'Europe/Berlin', time: [/12\.11\.2026/, /\b04:03\b/], nov5: [/05\.11\.2026/, /\b19:00\b/] },
     { locale: 'en-NZ', timezoneId: 'Pacific/Auckland', time: [/12\/11\/2026/, /\b(16:03|0?4:03\s*pm)/i], nov5: [/06\/11\/2026/, /\b0?7:00\s*am/i] },
     { locale: 'en-US', timezoneId: 'America/Chicago', time: [/11\/11\/2026/, /\b0?9:03\s*PM/i], nov5: [/11\/05\/2026/, /\b12:00\s*PM/i] },
+    // EU locales whose native order is year-first: day/month/year with '/', plus the locale's own time
+    { locale: 'sv-SE', timezoneId: 'Europe/Stockholm', time: [/^12\/11\/2026\b/, /\b04:03\b/], nov5: [/^05\/11\/2026\b/, /\b19:00\b/] },
+    { locale: 'hu-HU', timezoneId: 'Europe/Budapest', time: [/^12\/11\/2026\b/, /\b0?4:03\b/], nov5: [/^05\/11\/2026\b/, /\b19:00\b/] },
+    { locale: 'lt-LT', timezoneId: 'Europe/Vilnius', time: [/^12\/11\/2026\b/, /\b05:03\b/], nov5: [/^05\/11\/2026\b/, /\b20:00\b/] },
   ];
   for (const { locale, timezoneId, time, nov5 } of cases) {
     const { page, problems } = await open({ locale, timezoneId });

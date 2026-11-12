@@ -35,15 +35,43 @@ const dateTime = new Intl.DateTimeFormat(navigator.languages, {
 });
 const timeOnly = new Intl.DateTimeFormat(navigator.languages, { hour: '2-digit', minute: '2-digit' });
 
+// R5: day before month for EU locales. Some EU locales are natively year- or month-first (sv-SE, hu-HU,
+// lt-LT); for those only, the date becomes dd/mm/yyyy and the locale keeps its own time part.
+const EU = new Set('AT BE BG CY CZ DE DK EE ES FI FR GR HR HU IE IT LT LU LV MT NL PL PT RO SE SI SK'.split(' '));
+const TIME_PARTS = new Set(['hour', 'minute', 'second', 'dayPeriod']);
+
+function needsDayFirst(format) {
+  let region;
+  try {
+    region = new Intl.Locale(format.resolvedOptions().locale).maximize().region;
+  } catch {
+    return false;
+  }
+  if (!EU.has(region)) return false;
+  const types = format.formatToParts(0).map((p) => p.type);
+  return types.indexOf('day') > types.indexOf('month');
+}
+
+const dayFirst = needsDayFirst(dateTime);
+
+function formatDateTime(date) {
+  if (!dayFirst) return dateTime.format(date);
+  const parts = dateTime.formatToParts(date);
+  const value = (type) => parts.find((p) => p.type === type)?.value ?? '';
+  const timeAt = parts.flatMap((p, n) => (TIME_PARTS.has(p.type) ? [n] : []));
+  const time = timeAt.length ? parts.slice(timeAt[0], timeAt.at(-1) + 1).map((p) => p.value).join('') : '';
+  return `${value('day')}/${value('month')}/${value('year')} ${time}`.trim();
+}
+
 /** Local time as text; the full UTC value in `datetime`. */
-function setTime(node, iso, format = dateTime) {
+function setTime(node, iso, format = formatDateTime) {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) {
     setText(node, iso);
     node.setAttribute('datetime', String(iso ?? ''));
     return;
   }
-  setText(node, format.format(date));
+  setText(node, format(date));
   node.setAttribute('datetime', date.toISOString());
 }
 
@@ -51,7 +79,7 @@ function showAcked(cell, ackedAt) {
   const mark = el('span', 'acked', 'acked ');
   mark.dataset.testid = 'acked';
   const time = el('time');
-  setTime(time, ackedAt, timeOnly);
+  setTime(time, ackedAt, (date) => timeOnly.format(date));
   mark.append(time);
   cell.replaceChildren(mark);
 }
