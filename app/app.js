@@ -1,7 +1,10 @@
 import { fetchIncidents, ack } from './api.js';
 
+const REFRESH_MS = 2000;
+
 const board = document.querySelector('[data-testid="board"]');
 const list = document.querySelector('[data-testid="incident-list"]');
+const stale = document.querySelector('.stale');
 let empty = null;
 
 // Row elements by incident id. Rows are kept across updates so a row's Ack button, focus and acked mark
@@ -113,6 +116,28 @@ function showEmpty(on) {
   }
 }
 
-const page = await fetchIncidents();
-render(Array.isArray(page.incidents) ? page.incidents : []);
-document.querySelector('[data-testid="loader"]')?.remove();
+let loaded = false;
+
+// One fetch at a time: the next one is booked only after this one settles. A failed fetch keeps the last
+// list on screen and the loop going.
+async function refresh() {
+  try {
+    const page = await fetchIncidents();
+    render(Array.isArray(page.incidents) ? page.incidents : []);
+    if (!loaded) {
+      loaded = true;
+      document.querySelector('[data-testid="loader"]')?.remove();
+    }
+    stale.hidden = true;
+  } catch (err) {
+    console.warn('refresh failed', err);
+    stale.textContent = loaded
+      ? 'Could not refresh: this list may be stale. Retrying…'
+      : 'Could not load incidents. Retrying…';
+    stale.hidden = false;
+  } finally {
+    setTimeout(refresh, REFRESH_MS);
+  }
+}
+
+refresh();

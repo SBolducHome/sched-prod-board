@@ -14,4 +14,5 @@ h1 { margin: 0; font-size: 22px; }
 .acked { color: #1b7f3a; font-size: 13px; white-space: nowrap; }
 .error { color: #b00020; font-size: 13px; }
 .loader, .empty { margin: 12px 0; color: #666; }
+.stale { margin: 0 0 8px; color: #a15c00; font-size: 13px; }
 footer { color: #777; font-size: 13px; }
