@@ -1,6 +1,8 @@
 import { fetchIncidents, ack } from './api.js';
 
+const board = document.querySelector('[data-testid="board"]');
 const list = document.querySelector('[data-testid="incident-list"]');
+let empty = null;
 
 // Row elements by incident id. Rows are kept across updates so a row's Ack button, focus and acked mark
 // survive; only new rows are inserted and gone rows removed.
@@ -97,7 +99,20 @@ function render(incidents) {
     if (row === next) next = next.nextElementSibling;
     else list.insertBefore(row, next);
   }
+  showEmpty(rows.size === 0);
+}
+
+function showEmpty(on) {
+  if (on && !empty) {
+    empty = el('p', 'empty', 'No incidents tonight.');
+    empty.dataset.testid = 'empty';
+    board.append(empty);
+  } else if (!on && empty) {
+    empty.remove();
+    empty = null;
+  }
 }
 
 const page = await fetchIncidents();
 render(Array.isArray(page.incidents) ? page.incidents : []);
+document.querySelector('[data-testid="loader"]')?.remove();
