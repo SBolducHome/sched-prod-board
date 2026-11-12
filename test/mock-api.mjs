@@ -45,6 +45,7 @@ export async function startMock({ dist, session = 'lab-session', port = 0, host 
     Object.assign(state, {
       incidents: [...generated, FIXED.html, FIXED.time, FIXED.nov5].map((i) => ({ ...i })),
       cursors: [],
+      starts: [],
       fetches: 0,
       inFlight: 0,
       maxInFlight: 0,
@@ -67,6 +68,7 @@ export async function startMock({ dist, session = 'lab-session', port = 0, host 
 
   async function incidents(url, res) {
     if (url.searchParams.get('t') !== session) return unauthorized(res);
+    state.starts.push(Date.now());
     state.inFlight += 1;
     state.maxInFlight = Math.max(state.maxInFlight, state.inFlight);
     try {

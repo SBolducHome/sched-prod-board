@@ -211,3 +211,19 @@ test('7. failed fetches keep the list and the loop; never two fetches at once', 
   assert.equal(mock.state.maxInFlight, 1, 'one fetch at a time');
   assert.deepEqual(problems.errors, []);
 });
+
+test('8. R4: a request starts every 2 s, also while requests are slow', async () => {
+  const { page, problems } = await open();
+  await page.locator(ROW).first().waitFor();
+  await waitFetches(page, 1);
+  mock.state.maxInFlight = 0;
+  mock.state.delayIncidents.push(1500, 1500, 1500);
+  const from = mock.state.starts.length;
+  await waitFetches(page, 4);
+  const starts = mock.state.starts.slice(from);
+  const gaps = starts.slice(1).map((s, n) => s - starts[n]);
+  assert.ok(gaps.length >= 3, `gaps ${gaps}`);
+  for (const gap of gaps) assert.ok(gap >= 1800 && gap <= 2300, `start-to-start ${gap} ms (all: ${gaps.join(', ')})`);
+  assert.equal(mock.state.maxInFlight, 1, 'one fetch at a time');
+  assert.deepEqual(problems.errors, []);
+});

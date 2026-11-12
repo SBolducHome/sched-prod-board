@@ -135,9 +135,11 @@ function showEmpty(on) {
 
 let loaded = false;
 
-// One fetch at a time: the next one is booked only after this one settles. A failed fetch keeps the last
-// list on screen and the loop going.
+// A fetch starts every REFRESH_MS, one at a time: the next start is booked when this one settles, at
+// REFRESH_MS after this start (at once if this fetch took longer). A failed fetch keeps the last list on
+// screen and the loop going.
 async function refresh() {
+  const started = performance.now();
   try {
     const page = await fetchIncidents();
     render(Array.isArray(page.incidents) ? page.incidents : []);
@@ -153,7 +155,7 @@ async function refresh() {
       : 'Could not load incidents. Retrying…';
     stale.hidden = false;
   } finally {
-    setTimeout(refresh, REFRESH_MS);
+    setTimeout(refresh, Math.max(0, REFRESH_MS - (performance.now() - started)));
   }
 }
 
