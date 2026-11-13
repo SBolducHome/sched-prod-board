@@ -14,5 +14,9 @@ h1 { margin: 0; font-size: 22px; }
 .acked { color: #1b7f3a; font-size: 13px; white-space: nowrap; }
 .error { color: #b00020; font-size: 13px; }
 .loader, .empty { margin: 12px 0; color: #666; }
-.stale { margin: 0 0 8px; color: #a15c00; font-size: 13px; }
+/* Always there and fixed in height, so the bar or the note showing moves nothing below. */
+.bar-slot { display: flex; align-items: center; gap: 12px; height: 40px; max-width: 960px; overflow: hidden; }
+.new-bar { font: inherit; padding: 4px 14px; border: 1px solid #1d4ed8; border-radius: 6px; background: #eef4ff; color: #1d4ed8; cursor: pointer; }
+.announce { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+.stale { margin: 0; color: #a15c00; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 footer { color: #777; font-size: 13px; }

@@ -41,10 +41,23 @@ beforeEach(async () => {
   mock.reset();
 });
 
-async function open(options = { locale: 'en-GB', timezoneId: 'Europe/London' }) {
-  const context = await browser.newContext(options);
+async function open(options = {}, beforeGoto = async () => {}) {
+  const context = await browser.newContext({ locale: 'en-GB', timezoneId: 'Europe/London', viewport: { width: 1280, height: 800 }, ...options });
   contexts.push(context);
+  // Counts incident rows taken out of the DOM (rows inside removed nodes too).
+  await context.addInitScript(() => {
+    window.__rowsRemoved = 0;
+    const sel = '[data-testid="incident-row"]';
+    new MutationObserver((records) => {
+      for (const r of records) {
+        for (const n of r.removedNodes) {
+          if (n.nodeType === 1) window.__rowsRemoved += (n.matches(sel) ? 1 : 0) + n.querySelectorAll(sel).length;
+        }
+      }
+    }).observe(document, { childList: true, subtree: true });
+  });
   const page = await context.newPage();
+  await beforeGoto(page);
   const problems = { errors: [], dialogs: [] };
   page.on('pageerror', (err) => problems.errors.push(String(err)));
   page.on('dialog', (dialog) => {
@@ -61,8 +74,18 @@ const waitFetches = async (page, n) => {
   const target = mock.state.fetches + n;
   while (mock.state.fetches < target) await page.waitForTimeout(100);
 };
+const newBar = (page) => page.locator('[data-testid="new-bar"]:visible');
+const topId = (page) => page.locator(ROW).first().getAttribute('data-id');
+const rowYs = (page) => page.$$eval(ROW, (rows) => rows.map((r) => `${r.dataset.id}@${Math.round(r.getBoundingClientRect().y)}`));
+const rowsRemoved = (page) => page.evaluate(() => window.__rowsRemoved);
+/** Waits for the "N new" bar and clicks it; the new top row must show within 600 ms. */
+async function bringNewIn(page) {
+  await newBar(page).waitFor({ timeout: 3500 });
+  await newBar(page).click();
+  await page.waitForFunction((id) => document.querySelector('[data-testid="incident-row"]')?.dataset.id === id, mockIds()[0], { timeout: 600 });
+}
 
-test('1. loader on open, gone after the first load; empty state comes and goes', async () => {
+test('1. loader on open, gone after the first load; empty state, then new incidents show directly', async () => {
   mock.state.delayIncidents.push(1200);
   const { page, problems } = await open();
   assert.equal(await page.getByTestId('loader').isVisible(), true, 'loader visible on open');
@@ -76,26 +99,29 @@ test('1. loader on open, gone after the first load; empty state comes and goes',
   assert.equal(await second.page.getByTestId('loader').count(), 0);
   assert.equal(await second.page.locator(ROW).count(), 0);
 
+  assert.equal(await newBar(second.page).count(), 0, 'no bar on an empty board');
+
+  // Nothing on screen: new incidents show directly, no bar.
   const added = mock.addIncident();
   await second.page.locator(row(added.id)).waitFor({ timeout: 3500 });
   assert.equal(await second.page.getByTestId('empty').count(), 0, 'empty gone once an incident arrives');
-  mock.setIncidents([]);
-  await second.page.getByTestId('empty').waitFor({ timeout: 3500 });
-  assert.equal(await second.page.locator(ROW).count(), 0);
+  assert.equal(await newBar(second.page).count(), 0);
   assert.deepEqual([...problems.errors, ...second.problems.errors], []);
 });
 
-test('2. rows newest first; a new incident appears at the top without a reload', async () => {
+test('2. rows newest first; a new incident waits behind the bar and comes in at the top on click', async () => {
   const { page, problems } = await open();
   await page.locator(ROW).first().waitFor();
   assert.deepEqual(await rowIds(page), mockIds());
+  const first = await topId(page);
 
-  const added = mock.addIncident();
-  const started = Date.now();
-  await page.waitForFunction((id) => document.querySelector('[data-testid="incident-row"]')?.dataset.id === id, added.id, { timeout: 3500 });
-  const took = Date.now() - started;
-  assert.ok(took < 3500, `appeared after ${took} ms`);
+  mock.addIncident();
+  await newBar(page).waitFor({ timeout: 3500 });
+  assert.match(await newBar(page).innerText(), /^1 new incident\b/);
+  assert.equal(await topId(page), first, 'list held still');
+  await bringNewIn(page);
   assert.deepEqual(await rowIds(page), mockIds());
+  assert.equal(await newBar(page).count(), 0, 'bar hidden after the click');
   assert.deepEqual(problems.errors, []);
 });
 
@@ -206,8 +232,8 @@ test('7. failed fetches keep the list and the loop; never two fetches at once', 
   assert.match(await page.locator('.stale').innerText(), /stale/i);
   assert.deepEqual(await rowIds(page), before, 'list kept while fetches fail');
   await page.locator('.stale').waitFor({ state: 'hidden', timeout: 6000 });
-  const added = mock.addIncident();
-  await page.waitForFunction((id) => document.querySelector('[data-testid="incident-row"]')?.dataset.id === id, added.id, { timeout: 3500 });
+  mock.addIncident();
+  await bringNewIn(page);
 
   mock.state.maxInFlight = 0;
   mock.state.delayIncidents.push(2600, 2600);
@@ -232,7 +258,7 @@ test('8. R4: a request starts every 2 s, also while requests are slow', async ()
   assert.deepEqual(problems.errors, []);
 });
 
-test('9. a row whose Ack is in flight stays until the Ack settles, then goes on a later refresh', async () => {
+test('9. a bar click keeps a row whose Ack is in flight; the next bar click drops it once the Ack settled', async () => {
   const { page, problems } = await open();
   await page.locator(ROW).first().waitFor();
   mock.state.cap = mock.state.incidents.length;
@@ -241,8 +267,7 @@ test('9. a row whose Ack is in flight stays until the Ack settles, then goes on 
   await page.locator(row(oldest)).getByTestId('ack').click();
   mock.addIncident();
   assert.equal(mockIds().includes(oldest), false, 'the capped list dropped the oldest row');
-  await waitFetches(page, 1);
-  await page.waitForTimeout(300);
+  await bringNewIn(page);
   assert.equal(mock.state.acks.at(-1).status, undefined, 'ack still in flight');
   assert.deepEqual(await rowIds(page), [...mockIds(), oldest], 'pending row kept at its place');
   assert.equal(await page.locator(row(oldest)).getByTestId('ack').isDisabled(), true);
@@ -250,7 +275,11 @@ test('9. a row whose Ack is in flight stays until the Ack settles, then goes on 
   await page.locator(row(oldest)).getByTestId('acked').waitFor({ timeout: 5000 });
   assert.equal(mock.state.acks.at(-1).id, oldest);
   assert.equal(mock.state.acks.at(-1).status, 200);
-  await page.locator(row(oldest)).waitFor({ state: 'detached', timeout: 3500 });
+  await waitFetches(page, 1);
+  assert.equal(await page.locator(row(oldest)).count(), 1, 'the list holds still: no removal on a refresh');
+  mock.addIncident();
+  await bringNewIn(page);
+  await page.locator(row(oldest)).waitFor({ state: 'detached', timeout: 600 });
   assert.deepEqual(await rowIds(page), mockIds());
   assert.deepEqual(problems.errors, []);
 });
@@ -264,13 +293,119 @@ test('10. an acked row that left the list is forgotten (acked memory stays bound
   await page.locator(row(oldest.id)).getByTestId('acked').waitFor();
 
   mock.addIncident();
-  await page.locator(row(oldest.id)).waitFor({ state: 'detached', timeout: 3500 });
+  await bringNewIn(page);
+  await page.locator(row(oldest.id)).waitFor({ state: 'detached', timeout: 600 });
 
   // The page keeps no ack memory for rows it no longer shows: if the same id comes back, it is a fresh row.
   mock.state.cap += 1;
   mock.setIncidents([...mock.state.incidents, oldest]);
-  await page.locator(row(oldest.id)).waitFor({ timeout: 3500 });
+  await newBar(page).waitFor({ timeout: 3500 });
+  assert.match(await newBar(page).innerText(), /^1 new incident\b/);
+  await newBar(page).click();
+  await page.locator(row(oldest.id)).waitFor({ timeout: 600 });
   assert.equal(await page.locator(row(oldest.id)).getByTestId('acked').count(), 0, 'ack entry was dropped with its row');
   assert.equal(await page.locator(row(oldest.id)).getByTestId('ack').count(), 1);
+  assert.deepEqual(problems.errors, []);
+});
+
+test('11. the list holds still while new incidents arrive; the bar counts them and brings them in', async () => {
+  const { page, problems } = await open();
+  await page.locator(ROW).first().waitFor();
+  await waitFetches(page, 1);
+  const before = await rowYs(page);
+  const first = await topId(page);
+  const focused = page.locator(ROW).nth(3).getByTestId('ack');
+  await focused.focus();
+  await page.evaluate(() => (window.__rowsRemoved = 0));
+
+  mock.addIncident();
+  await waitFetches(page, 2);
+  mock.addIncident();
+  await waitFetches(page, 2);
+  await page.waitForTimeout(200);
+  assert.equal(await topId(page), first, 'top row unchanged');
+  assert.deepEqual(await rowYs(page), before, 'no row moved, also with the bar showing');
+  assert.equal(await rowsRemoved(page), 0, 'no row removed');
+  assert.match(await newBar(page).innerText(), /^2 new incidents\b/);
+  const barBox = await newBar(page).boundingBox();
+  const firstBox = await page.locator(ROW).first().boundingBox();
+  assert.ok(barBox.y + barBox.height <= firstBox.y, 'bar sits above the list');
+  assert.match(await page.locator('[aria-live="polite"]').first().textContent(), /2 new incidents/);
+  assert.equal(await focused.evaluate((el) => document.activeElement === el), true, 'announcing moved no focus');
+
+  await bringNewIn(page);
+  assert.deepEqual(await rowIds(page), mockIds(), 'new incidents at the top, newest first');
+  assert.equal(await page.locator(ROW).first().getByTestId('ack').count(), 1, 'top row has an Ack button');
+  assert.equal(await newBar(page).count(), 0);
+
+  // Keyboard: the bar is a button in the tab order.
+  mock.addIncident();
+  await newBar(page).waitFor({ timeout: 3500 });
+  await newBar(page).focus();
+  await page.keyboard.press('Enter');
+  await page.waitForFunction((id) => document.querySelector('[data-testid="incident-row"]')?.dataset.id === id, mockIds()[0], { timeout: 600 });
+  assert.deepEqual(problems.errors, []);
+});
+
+test('12. an Ack aimed while a new incident arrives mid-aim acks the intended incident (replay h)', async () => {
+  let lastTop = null;
+  let hold = null;
+  const { page, problems } = await open({}, (p) =>
+    p.route('**/api/incidents**', async (route) => {
+      const res = await route.fetch();
+      const body = await res.text();
+      let top = null;
+      try {
+        top = JSON.parse(body).incidents?.[0]?.id ?? null;
+      } catch {}
+      const fresh = lastTop !== null && top !== null && top !== lastTop;
+      if (top) lastTop = top;
+      if (fresh && hold?.armed) await new Promise((release) => hold.wait(release));
+      await route.fulfill({ response: res, body });
+    }),
+  );
+  await page.locator(ROW).first().waitFor();
+  await waitFetches(page, 1);
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const target = page.locator(ROW).filter({ hasNot: page.getByTestId('acked') }).nth(2);
+    const intended = await target.getAttribute('data-id');
+    const box = await target.getByTestId('ack').boundingBox();
+    const [x, y] = [box.x + box.width / 2, box.y + box.height / 2];
+    let release;
+    const landed = new Promise((ok) => (hold = { armed: true, wait: (r) => ((release = r), ok()) }));
+    mock.addIncident();
+    await page.mouse.move(x, y, { steps: 8 });
+    await Promise.race([landed, page.waitForTimeout(5000)]);
+    assert.ok(release, 'a new incident arrived mid-aim');
+    release();
+    hold = null;
+    await page.waitForTimeout(300);
+    const sent = mock.state.acks.length;
+    await page.mouse.click(x, y);
+    for (let waited = 0; mock.state.acks.length === sent && waited < 3000; waited += 100) await page.waitForTimeout(100);
+    assert.equal(mock.state.acks.at(-1)?.id, intended, `attempt ${attempt + 1}: acked ${mock.state.acks.at(-1)?.id}, aimed at ${intended}`);
+    await page.locator(row(intended)).getByTestId('acked').waitFor();
+  }
+  assert.deepEqual(problems.errors, []);
+});
+
+test('13. the "could not refresh" note moves no row', async () => {
+  const { page, problems } = await open();
+  await page.locator(ROW).first().waitFor();
+  const before = await rowYs(page);
+  mock.state.failIncidents = 2;
+  await page.locator('.stale').waitFor({ timeout: 3500 });
+  assert.deepEqual(await rowYs(page), before, 'note showing moved no row');
+  await page.locator('.stale').waitFor({ state: 'hidden', timeout: 6000 });
+  assert.deepEqual(await rowYs(page), before, 'note hiding moved no row');
+  assert.deepEqual(problems.errors, []);
+});
+
+test('14. empty API: loader gone and empty visible within 8 s (replay i)', async () => {
+  mock.setIncidents([]);
+  const { page, problems } = await open();
+  await page.locator('[data-testid="empty"]:visible').waitFor({ timeout: 8000 });
+  assert.equal(await page.locator('[data-testid="loader"]:visible').count(), 0);
+  assert.equal(await newBar(page).count(), 0);
   assert.deepEqual(problems.errors, []);
 });

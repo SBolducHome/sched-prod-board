@@ -5,6 +5,8 @@ const REFRESH_MS = 2000;
 const board = document.querySelector('[data-testid="board"]');
 const list = document.querySelector('[data-testid="incident-list"]');
 const stale = document.querySelector('.stale');
+const bar = document.querySelector('[data-testid="new-bar"]');
+const announce = document.querySelector('.announce');
 let empty = null;
 
 // Row elements by incident id. Rows are kept across updates so a row's Ack button, focus and acked mark
@@ -12,8 +14,10 @@ let empty = null;
 const rows = new Map();
 // Acks done on this page for rows still shown: incident id -> ackedAt. Dropped with the row.
 const acked = new Map();
-// Ids whose Ack is in flight. Their rows stay on screen until the Ack settles, even if the list dropped them.
+// Ids whose Ack is in flight. Applying an answer keeps their rows, even if the list dropped them.
 const pending = new Set();
+// R1: once rows are on screen the list holds still. The latest answer waits here until the bar is clicked.
+let held = null;
 
 function el(tag, className, text) {
   const node = document.createElement(tag);
@@ -169,6 +173,36 @@ function showEmpty(on) {
   }
 }
 
+function countNew(incidents) {
+  return new Set(incidents.map((i) => String(i.id)).filter((id) => !rows.has(id))).size;
+}
+
+/** Shows the bar when the held answer has incidents not on screen. Its slot is always there. */
+function updateBar() {
+  const count = held ? countNew(held) : 0;
+  const text = count ? `${count} new incident${count === 1 ? '' : 's'}` : '';
+  if (announce.textContent !== text) announce.textContent = text;
+  if (count) setText(bar, `${text} · show`);
+  bar.hidden = !count;
+}
+
+bar.addEventListener('click', () => {
+  if (held) render(held);
+  held = null;
+  updateBar();
+});
+
+/** First answer, or nothing on screen: show it. Rows on screen: hold it for the bar. */
+function receive(incidents) {
+  if (rows.size === 0) {
+    held = null;
+    render(incidents);
+  } else {
+    held = incidents;
+  }
+  updateBar();
+}
+
 let loaded = false;
 
 // A fetch starts every REFRESH_MS, one at a time: the next start is booked when this one settles, at
@@ -178,7 +212,7 @@ async function refresh() {
   const started = performance.now();
   try {
     const page = await fetchIncidents();
-    render(Array.isArray(page.incidents) ? page.incidents : []);
+    receive(Array.isArray(page.incidents) ? page.incidents : []);
     if (!loaded) {
       loaded = true;
       document.querySelector('[data-testid="loader"]')?.remove();

@@ -14,8 +14,12 @@
       <p class="sub">sched-prod · tonight</p>
     </header>
     <main data-testid="board">
+      <div class="bar-slot">
+        <button type="button" data-testid="new-bar" class="new-bar" hidden></button>
+        <span class="announce" aria-live="polite"></span>
+        <p class="stale" role="status" hidden></p>
+      </div>
       <p data-testid="loader" class="loader" role="status">Loading incidents…</p>
-      <p class="stale" role="status" hidden></p>
       <ul data-testid="incident-list" class="list"></ul>
     </main>
     <footer>sched-prod incident board · build <code data-testid="build-sha">__BUILD_SHA__</code></footer>

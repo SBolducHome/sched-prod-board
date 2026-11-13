@@ -1,7 +1,7 @@
 ---
 id: SCHED-4515
 title: The list holds still; a "N new" bar brings new incidents in
-status: ready
+status: done
 plan: R1, R2, R4
 ---
 
